@@ -235,37 +235,66 @@ const SelecaoPage = () => {
     }
     setSubmitting(ifaId);
     try {
-      // 1. Criar estudante
-      const { data: studentData, error: studentError } = await supabase
+      // 1. Verificar se o estudante já existe (Nome + Turma)
+      let { data: existingStudent, error: findError } = await supabase
         .from('estudantes')
-        .insert([{ 
-          nome: student.nome, 
-          turma: student.turma, 
-          serie: student.serie 
-        }])
-        .select()
-        .single();
+        .select('id')
+        .eq('nome', student.nome)
+        .eq('turma', student.turma)
+        .maybeSingle();
 
-      if (studentError) throw new Error("Você já possui uma inscrição ativa.");
+      if (findError) throw findError;
 
-      // 2. Criar inscrição
+      let studentId = existingStudent?.id;
+
+      // 2. Se o estudante existe, verificar se já tem inscrição
+      if (studentId) {
+        const { data: existingInscricao, error: checkError } = await supabase
+          .from('inscricoes')
+          .select('id')
+          .eq('estudante_id', studentId)
+          .maybeSingle();
+
+        if (checkError) throw checkError;
+        if (existingInscricao) {
+          throw new Error("Você já possui uma inscrição ativa neste sistema.");
+        }
+      } else {
+        // 3. Se não existe, criar o estudante
+        const { data: newStudent, error: createError } = await supabase
+          .from('estudantes')
+          .insert([{ 
+            nome: student.nome, 
+            turma: student.turma, 
+            serie: student.serie 
+          }])
+          .select()
+          .single();
+
+        if (createError) throw createError;
+        studentId = newStudent.id;
+      }
+
+      // 4. Criar a inscrição no IFA selecionado
       const { error: inscricaoError } = await supabase
         .from('inscricoes')
         .insert([{ 
-          estudante_id: studentData.id, 
+          estudante_id: studentId, 
           ifa_id: ifaId 
         }]);
 
       if (inscricaoError) {
-        // Rollback estudante se falhar (opcional dependendo da lógica de negócio)
-        await supabase.from('estudantes').delete().eq('id', studentData.id);
+        // Se o erro for de limite de vagas ou algo do tipo
+        if (inscricaoError.code === '23505') {
+          throw new Error("Você já está inscrito neste itinerário.");
+        }
         throw inscricaoError;
       }
 
       setSuccess(true);
       sessionStorage.removeItem('temp_student');
     } catch (err: any) {
-      alert(err.message || "Erro ao realizar inscrição. Verifique se as vagas acabaram.");
+      alert(err.message || "Erro ao realizar inscrição. Tente novamente.");
     } finally {
       setSubmitting(null);
     }
