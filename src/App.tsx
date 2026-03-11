@@ -295,7 +295,20 @@ const SelecaoPage = () => {
         studentId = newStudent.id;
       }
 
-      // 4. Criar a inscrição no IFA selecionado
+      // 4. Verificar vagas novamente antes de inserir (prevenção de concorrência)
+      const { data: ifaCheck, error: ifaError } = await supabase
+        .from('ifas')
+        .select('vagas_maximas, inscricoes(count)')
+        .eq('id', ifaId)
+        .single();
+
+      if (ifaError) throw ifaError;
+      const currentCount = ifaCheck.inscricoes[0]?.count || 0;
+      if (currentCount >= ifaCheck.vagas_maximas) {
+        throw new Error("Desculpe, as vagas para este itinerário acabaram de ser preenchidas.");
+      }
+
+      // 5. Criar a inscrição no IFA selecionado
       const { error: inscricaoError } = await supabase
         .from('inscricoes')
         .insert([{ 
@@ -479,9 +492,17 @@ const AdminPage = () => {
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (error) {
         console.error("Erro ao obter sessão:", error);
-        // Se o token for inválido, limpa a sessão local
-        if (error.message.includes('Refresh Token')) {
-          supabase.auth.signOut();
+        // Se o token for inválido, limpa a sessão local de forma agressiva
+        if (error.message.includes('Refresh Token') || error.message.includes('not found')) {
+          supabase.auth.signOut().then(() => {
+            // Limpa manualmente o localStorage se o signOut falhar em limpar tudo
+            Object.keys(localStorage).forEach(key => {
+              if (key.includes('supabase.auth.token')) {
+                localStorage.removeItem(key);
+              }
+            });
+            window.location.reload(); // Recarrega para garantir estado limpo
+          });
         }
         return;
       }
@@ -732,11 +753,27 @@ const AdminPage = () => {
             />
             <button
               disabled={loading}
-              className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700"
+              className="w-full bg-emerald-600 text-white py-3 rounded-xl font-bold hover:bg-emerald-700 transition-all"
             >
               {loading ? 'Entrando...' : 'Entrar'}
             </button>
           </form>
+          
+          <div className="mt-8 pt-6 border-t border-gray-100 text-center">
+            <p className="text-xs text-gray-400 mb-4">Problemas com o login?</p>
+            <button 
+              onClick={async () => {
+                await supabase.auth.signOut();
+                Object.keys(localStorage).forEach(key => {
+                  if (key.includes('supabase.auth.token')) localStorage.removeItem(key);
+                });
+                window.location.reload();
+              }}
+              className="text-xs font-bold text-emerald-600 hover:underline"
+            >
+              Limpar Sessão e Recarregar
+            </button>
+          </div>
         </Card>
       </div>
     );
