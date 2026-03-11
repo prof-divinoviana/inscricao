@@ -12,8 +12,12 @@ import {
   Users, 
   BookOpen,
   ChevronRight,
-  Loader2
+  Loader2,
+  Printer,
+  FileText
 } from 'lucide-react';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -385,6 +389,7 @@ const AdminPage = () => {
   const [ifas, setIfas] = useState<IFA[]>([]);
   const [inscritos, setInscritos] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'ifas' | 'inscritos'>('ifas');
+  const [selectedIfa, setSelectedIfa] = useState<string>('all');
 
   useEffect(() => {
     if (!supabase) return;
@@ -409,6 +414,122 @@ const AdminPage = () => {
       setIfas(ifasData.map((i: any) => ({ ...i, inscricoes_count: i.inscricoes[0]?.count || 0 })));
     }
     if (inscritosData) setInscritos(inscritosData);
+  };
+
+  const filteredInscritos = selectedIfa === 'all' 
+    ? inscritos 
+    : inscritos.filter(ins => ins.ifas?.id === selectedIfa);
+
+  const getExportData = () => {
+    return filteredInscritos.map(ins => ({
+      Estudante: ins.estudantes?.nome,
+      Turma: ins.estudantes?.turma,
+      IFA: ins.ifas?.nome_ifa,
+      Data: new Date(ins.data_inscricao).toLocaleDateString()
+    }));
+  };
+
+  const exportToPDF = () => {
+    const doc = new jsPDF();
+    const title = selectedIfa === 'all' ? 'Lista Geral de Inscritos' : `Inscritos - ${ifas.find(i => i.id === selectedIfa)?.nome_ifa}`;
+    
+    doc.text(title, 14, 15);
+    autoTable(doc, {
+      startY: 20,
+      head: [['Estudante', 'Turma Origem', 'IFA Escolhido', 'Data']],
+      body: filteredInscritos.map(ins => [
+        ins.estudantes?.nome,
+        ins.estudantes?.turma,
+        ins.ifas?.nome_ifa,
+        new Date(ins.data_inscricao).toLocaleDateString()
+      ]),
+    });
+    doc.save(`inscritos_${selectedIfa}.pdf`);
+  };
+
+  const exportToDoc = () => {
+    const title = selectedIfa === 'all' ? 'Lista Geral de Inscritos' : `Inscritos - ${ifas.find(i => i.id === selectedIfa)?.nome_ifa}`;
+    let html = `
+      <html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'>
+      <head><meta charset='utf-8'><title>${title}</title></head>
+      <body>
+        <h1>${title}</h1>
+        <table border='1' style='border-collapse: collapse; width: 100%;'>
+          <thead>
+            <tr style='background-color: #f2f2f2;'>
+              <th>Estudante</th>
+              <th>Turma Origem</th>
+              <th>IFA Escolhido</th>
+              <th>Data</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filteredInscritos.map(ins => `
+              <tr>
+                <td>${ins.estudantes?.nome}</td>
+                <td>${ins.estudantes?.turma}</td>
+                <td>${ins.ifas?.nome_ifa}</td>
+                <td>${new Date(ins.data_inscricao).toLocaleDateString()}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+
+    const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `inscritos_${selectedIfa}.doc`;
+    link.click();
+  };
+
+  const handlePrint = () => {
+    const title = selectedIfa === 'all' ? 'Lista Geral de Inscritos' : `Inscritos - ${ifas.find(i => i.id === selectedIfa)?.nome_ifa}`;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>${title}</title>
+          <style>
+            body { font-family: sans-serif; padding: 20px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+            th { background-color: #f4f4f4; }
+            h1 { color: #059669; }
+          </style>
+        </head>
+        <body>
+          <h1>${title}</h1>
+          <table>
+            <thead>
+              <tr>
+                <th>Estudante</th>
+                <th>Turma Origem</th>
+                <th>IFA Escolhido</th>
+                <th>Data</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filteredInscritos.map(ins => `
+                <tr>
+                  <td>${ins.estudantes?.nome}</td>
+                  <td>${ins.estudantes?.turma}</td>
+                  <td>${ins.ifas?.nome_ifa}</td>
+                  <td>${new Date(ins.data_inscricao).toLocaleDateString()}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <script>window.print(); window.close();</script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -560,11 +681,43 @@ const AdminPage = () => {
         </div>
       ) : (
         <div>
-          <div className="flex justify-end mb-4">
-            <button className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg font-bold hover:bg-gray-200">
-              <Download className="w-4 h-4" /> Exportar CSV
-            </button>
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+            <div className="w-full md:w-64">
+              <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Filtrar por IFA</label>
+              <select 
+                value={selectedIfa}
+                onChange={(e) => setSelectedIfa(e.target.value)}
+                className="w-full p-2 border rounded-lg text-sm bg-white"
+              >
+                <option value="all">Todos os Itinerários</option>
+                {ifas.map(ifa => (
+                  <option key={ifa.id} value={ifa.id}>{ifa.nome_ifa} ({ifa.turma})</option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="flex flex-wrap gap-2">
+              <button 
+                onClick={handlePrint}
+                className="flex items-center gap-2 bg-white border border-gray-200 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+              >
+                <Printer className="w-4 h-4 text-emerald-600" /> Imprimir
+              </button>
+              <button 
+                onClick={exportToPDF}
+                className="flex items-center gap-2 bg-white border border-gray-200 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+              >
+                <FileText className="w-4 h-4 text-red-500" /> PDF
+              </button>
+              <button 
+                onClick={exportToDoc}
+                className="flex items-center gap-2 bg-white border border-gray-200 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+              >
+                <Download className="w-4 h-4 text-blue-500" /> Word (DOC)
+              </button>
+            </div>
           </div>
+
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
@@ -576,7 +729,7 @@ const AdminPage = () => {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {inscritos.map(ins => (
+                {filteredInscritos.map(ins => (
                   <tr key={ins.id} className="hover:bg-gray-50">
                     <td className="p-4 font-bold text-gray-900">{ins.estudantes?.nome}</td>
                     <td className="p-4 text-gray-600">{ins.estudantes?.turma}</td>
@@ -584,6 +737,11 @@ const AdminPage = () => {
                     <td className="p-4 text-gray-400 text-sm">{new Date(ins.data_inscricao).toLocaleDateString()}</td>
                   </tr>
                 ))}
+                {filteredInscritos.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="p-8 text-center text-gray-400 italic">Nenhum registro encontrado para este filtro.</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
