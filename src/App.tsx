@@ -14,7 +14,11 @@ import {
   ChevronRight,
   Loader2,
   Printer,
-  FileText
+  FileText,
+  Edit,
+  Trash2,
+  Save,
+  X
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -457,6 +461,8 @@ const AdminPage = () => {
   const [activeTab, setActiveTab] = useState<'ifas' | 'inscritos'>('ifas');
   const [selectedIfa, setSelectedIfa] = useState<string>('all');
   const [selectedTurno, setSelectedTurno] = useState<string>('all');
+  const [editingIfaId, setEditingIfaId] = useState<string | null>(null);
+  const [newIfaName, setNewIfaName] = useState('');
 
   useEffect(() => {
     if (!supabase) return;
@@ -624,6 +630,49 @@ const AdminPage = () => {
     printWindow.document.close();
   };
 
+  const handleUpdateIfaName = async (ifaId: string) => {
+    if (!newIfaName.trim()) return;
+    
+    const { error } = await supabase
+      .from('ifas')
+      .update({ nome_ifa: newIfaName })
+      .eq('id', ifaId);
+
+    if (error) {
+      alert("Erro ao atualizar nome: " + error.message);
+    } else {
+      setEditingIfaId(null);
+      fetchData();
+    }
+  };
+
+  const handleDeleteInscrito = async (inscricaoId: string, estudanteId: string) => {
+    if (!confirm("Tem certeza que deseja excluir este estudante e sua inscrição?")) return;
+
+    // Primeiro exclui a inscrição
+    const { error: inscricaoError } = await supabase
+      .from('inscricoes')
+      .delete()
+      .eq('id', inscricaoId);
+
+    if (inscricaoError) {
+      alert("Erro ao excluir inscrição: " + inscricaoError.message);
+      return;
+    }
+
+    // Depois tenta excluir o estudante (pode falhar se houver outras inscrições, mas aqui é 1 pra 1)
+    const { error: estudanteError } = await supabase
+      .from('estudantes')
+      .delete()
+      .eq('id', estudanteId);
+
+    if (estudanteError) {
+      console.warn("Estudante não excluído (pode ter outras referências):", estudanteError.message);
+    }
+
+    fetchData();
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -759,7 +808,35 @@ const AdminPage = () => {
             <tbody className="divide-y">
               {ifas.map(ifa => (
                 <tr key={ifa.id} className="hover:bg-gray-50">
-                  <td className="p-4 font-bold text-gray-900">{ifa.nome_ifa}</td>
+                  <td className="p-4 font-bold text-gray-900">
+                    {editingIfaId === ifa.id ? (
+                      <div className="flex items-center gap-2">
+                        <input 
+                          type="text" 
+                          value={newIfaName}
+                          onChange={(e) => setNewIfaName(e.target.value)}
+                          className="border p-1 rounded text-sm font-normal w-full"
+                          autoFocus
+                        />
+                        <button onClick={() => handleUpdateIfaName(ifa.id)} className="text-emerald-600">
+                          <Save className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => setEditingIfaId(null)} className="text-gray-400">
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 group">
+                        <span>{ifa.nome_ifa}</span>
+                        <button 
+                          onClick={() => { setEditingIfaId(ifa.id); setNewIfaName(ifa.nome_ifa); }}
+                          className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-emerald-600 transition-all"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </td>
                   <td className="p-4 text-gray-600">{ifa.turma}</td>
                   <td className="p-4 text-gray-600">{ifa.inscricoes_count} / {ifa.vagas_maximas}</td>
                   <td className="p-4">
@@ -838,6 +915,7 @@ const AdminPage = () => {
                   <th className="p-4 font-bold">Turno</th>
                   <th className="p-4 font-bold">IFA Escolhido</th>
                   <th className="p-4 font-bold">Data</th>
+                  <th className="p-4 font-bold">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -848,6 +926,15 @@ const AdminPage = () => {
                     <td className="p-4 text-gray-600 capitalize">{ins.estudantes?.turno || '-'}</td>
                     <td className="p-4 text-gray-600">{ins.ifas?.nome_ifa}</td>
                     <td className="p-4 text-gray-400 text-sm">{new Date(ins.data_inscricao).toLocaleDateString()}</td>
+                    <td className="p-4">
+                      <button 
+                        onClick={() => handleDeleteInscrito(ins.id, ins.estudantes?.id)}
+                        className="text-gray-400 hover:text-red-600 transition-all"
+                        title="Excluir estudante"
+                      >
+                        <Trash2 className="w-5 h-5" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {filteredInscritos.length === 0 && (
