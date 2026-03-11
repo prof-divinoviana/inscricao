@@ -48,6 +48,26 @@ interface Estudante {
   serie: number;
 }
 
+// --- Constants ---
+const getTurnoFromTurma = (turma: string) => {
+  const matutino = [
+    '13.01', '13.02', '13.03', '13.04', '13.05',
+    '23.01', '23.02', '23.03', '23.04',
+    '33.01', '33.02', '33.03', '33.04', '33.09'
+  ];
+  
+  const vespertino = [
+    '13.06', '13.07',
+    '23.05', '23.06',
+    '33.05', '33.06', '33.07', '33.08'
+  ];
+
+  if (matutino.includes(turma)) return 'matutino';
+  if (vespertino.includes(turma)) return 'vespertino';
+  
+  return 'outro';
+};
+
 // --- Components ---
 
 const Navbar = () => (
@@ -91,16 +111,10 @@ const HomePage = () => {
     }
 
     try {
-      // Validação básica de configuração
       if (!supabase) {
-        throw new Error("Configuração do Supabase ausente. Verifique as variáveis de ambiente.");
+        throw new Error("Configuração do Supabase ausente.");
       }
       
-      const url = (supabase as any).supabaseUrl;
-      if (url && (url.includes('vercel.app') || url.includes('run.app'))) {
-        throw new Error("Erro de Configuração: A URL do Supabase parece estar apontando para o próprio app. Use a URL do projeto Supabase (ex: https://xyz.supabase.co).");
-      }
-
       // Identificação da série localmente
       const prefix = turma.substring(0, 2);
       let serie = 0;
@@ -113,8 +127,9 @@ const HomePage = () => {
         throw new Error("Série não identificada para esta turma (Use 13, 23 ou 33).");
       }
 
-      // Salvar dados temporários no sessionStorage
-      sessionStorage.setItem('temp_student', JSON.stringify({ nome, turma, serie }));
+      const turno = getTurnoFromTurma(turma);
+
+      sessionStorage.setItem('temp_student', JSON.stringify({ nome, turma, serie, turno }));
       navigate('/selecao');
     } catch (err: any) {
       setError(err.message);
@@ -266,7 +281,8 @@ const SelecaoPage = () => {
           .insert([{ 
             nome: student.nome, 
             turma: student.turma, 
-            serie: student.serie 
+            serie: student.serie,
+            turno: student.turno
           }])
           .select()
           .single();
@@ -341,16 +357,17 @@ const SelecaoPage = () => {
     </div>
   );
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Olá, {student?.nome}</h1>
-        <p className="text-gray-500 mt-1">Série identificada: {student?.serie}ª Série | Turma: {student?.turma}</p>
-        <p className="text-emerald-600 font-medium mt-2">Escolha um dos Itinerários Formativos abaixo:</p>
-      </div>
+  const ifasMatutino = ifas.filter(ifa => getTurnoFromTurma(ifa.turma) === 'matutino');
+  const ifasVespertino = ifas.filter(ifa => getTurnoFromTurma(ifa.turma) === 'vespertino');
 
+  const renderIfaGrid = (items: IFA[], title: string) => (
+    <div className="mb-12">
+      <div className="flex items-center gap-3 mb-6">
+        <div className="h-8 w-1 bg-emerald-600 rounded-full"></div>
+        <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {ifas.map((ifa) => {
+        {items.map((ifa) => {
           const vagasRestantes = ifa.vagas_maximas - (ifa.inscricoes_count || 0);
           const esgotado = vagasRestantes <= 0;
 
@@ -406,6 +423,26 @@ const SelecaoPage = () => {
           );
         })}
       </div>
+      {items.length === 0 && (
+        <p className="text-gray-400 italic bg-gray-50 p-8 rounded-2xl text-center border-2 border-dashed">
+          Nenhum itinerário disponível para este turno.
+        </p>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="mb-10">
+        <h1 className="text-3xl font-bold text-gray-900">Olá, {student?.nome}</h1>
+        <p className="text-gray-500 mt-1">
+          Série: {student?.serie}ª Série | Turma: {student?.turma}
+        </p>
+        <div className="h-1 w-20 bg-emerald-600 mt-4 rounded-full"></div>
+      </div>
+
+      {renderIfaGrid(ifasMatutino, "Turno Matutino")}
+      {renderIfaGrid(ifasVespertino, "Turno Vespertino")}
     </div>
   );
 };
@@ -419,20 +456,39 @@ const AdminPage = () => {
   const [inscritos, setInscritos] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'ifas' | 'inscritos'>('ifas');
   const [selectedIfa, setSelectedIfa] = useState<string>('all');
+  const [selectedTurno, setSelectedTurno] = useState<string>('all');
 
   useEffect(() => {
     if (!supabase) return;
     
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || event === 'USER_UPDATED') {
+        setUser(session?.user ?? null);
+      } else if (session) {
+        setUser(session.user);
+        fetchData();
+      }
+    });
+
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (error) {
         console.error("Erro ao obter sessão:", error);
+        // Se o token for inválido, limpa a sessão local
+        if (error.message.includes('Refresh Token')) {
+          supabase.auth.signOut();
+        }
         return;
       }
       setUser(session?.user ?? null);
       if (session?.user) fetchData();
     }).catch(err => {
       console.error("Erro crítico na sessão:", err);
+      supabase.auth.signOut();
     });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const fetchData = async () => {
@@ -445,9 +501,11 @@ const AdminPage = () => {
     if (inscritosData) setInscritos(inscritosData);
   };
 
-  const filteredInscritos = selectedIfa === 'all' 
-    ? inscritos 
-    : inscritos.filter(ins => ins.ifas?.id === selectedIfa);
+  const filteredInscritos = inscritos.filter(ins => {
+    const matchIfa = selectedIfa === 'all' || ins.ifas?.id === selectedIfa;
+    const matchTurno = selectedTurno === 'all' || ins.estudantes?.turno === selectedTurno;
+    return matchIfa && matchTurno;
+  });
 
   const getExportData = () => {
     return filteredInscritos.map(ins => ({
@@ -465,10 +523,11 @@ const AdminPage = () => {
     doc.text(title, 14, 15);
     autoTable(doc, {
       startY: 20,
-      head: [['Estudante', 'Turma Origem', 'IFA Escolhido', 'Data']],
+      head: [['Estudante', 'Turma Origem', 'Turno', 'IFA Escolhido', 'Data']],
       body: filteredInscritos.map(ins => [
         ins.estudantes?.nome,
         ins.estudantes?.turma,
+        ins.estudantes?.turno || '-',
         ins.ifas?.nome_ifa,
         new Date(ins.data_inscricao).toLocaleDateString()
       ]),
@@ -488,6 +547,7 @@ const AdminPage = () => {
             <tr style='background-color: #f2f2f2;'>
               <th>Estudante</th>
               <th>Turma Origem</th>
+              <th>Turno</th>
               <th>IFA Escolhido</th>
               <th>Data</th>
             </tr>
@@ -497,6 +557,7 @@ const AdminPage = () => {
               <tr>
                 <td>${ins.estudantes?.nome}</td>
                 <td>${ins.estudantes?.turma}</td>
+                <td>${ins.estudantes?.turno || '-'}</td>
                 <td>${ins.ifas?.nome_ifa}</td>
                 <td>${new Date(ins.data_inscricao).toLocaleDateString()}</td>
               </tr>
@@ -539,6 +600,7 @@ const AdminPage = () => {
               <tr>
                 <th>Estudante</th>
                 <th>Turma Origem</th>
+                <th>Turno</th>
                 <th>IFA Escolhido</th>
                 <th>Data</th>
               </tr>
@@ -548,6 +610,7 @@ const AdminPage = () => {
                 <tr>
                   <td>${ins.estudantes?.nome}</td>
                   <td>${ins.estudantes?.turma}</td>
+                  <td>${ins.estudantes?.turno || '-'}</td>
                   <td>${ins.ifas?.nome_ifa}</td>
                   <td>${new Date(ins.data_inscricao).toLocaleDateString()}</td>
                 </tr>
@@ -564,6 +627,10 @@ const AdminPage = () => {
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    
+    // Limpa qualquer sessão residual antes de tentar um novo login
+    await supabase.auth.signOut();
+    
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) alert(error.message);
     else {
@@ -711,18 +778,33 @@ const AdminPage = () => {
       ) : (
         <div>
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-            <div className="w-full md:w-64">
-              <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Filtrar por IFA</label>
-              <select 
-                value={selectedIfa}
-                onChange={(e) => setSelectedIfa(e.target.value)}
-                className="w-full p-2 border rounded-lg text-sm bg-white"
-              >
-                <option value="all">Todos os Itinerários</option>
-                {ifas.map(ifa => (
-                  <option key={ifa.id} value={ifa.id}>{ifa.nome_ifa} ({ifa.turma})</option>
-                ))}
-              </select>
+            <div className="flex flex-col md:flex-row gap-4 w-full md:w-auto">
+              <div className="w-full md:w-64">
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Filtrar por IFA</label>
+                <select 
+                  value={selectedIfa}
+                  onChange={(e) => setSelectedIfa(e.target.value)}
+                  className="w-full p-2 border rounded-lg text-sm bg-white"
+                >
+                  <option value="all">Todos os Itinerários</option>
+                  {ifas.map(ifa => (
+                    <option key={ifa.id} value={ifa.id}>{ifa.nome_ifa} ({ifa.turma})</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="w-full md:w-48">
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Filtrar por Turno</label>
+                <select 
+                  value={selectedTurno}
+                  onChange={(e) => setSelectedTurno(e.target.value)}
+                  className="w-full p-2 border rounded-lg text-sm bg-white"
+                >
+                  <option value="all">Todos os Turnos</option>
+                  <option value="matutino">Matutino</option>
+                  <option value="vespertino">Vespertino</option>
+                </select>
+              </div>
             </div>
             
             <div className="flex flex-wrap gap-2">
@@ -753,6 +835,7 @@ const AdminPage = () => {
                 <tr className="bg-gray-50 text-gray-500 text-sm uppercase tracking-wider">
                   <th className="p-4 font-bold">Estudante</th>
                   <th className="p-4 font-bold">Turma Origem</th>
+                  <th className="p-4 font-bold">Turno</th>
                   <th className="p-4 font-bold">IFA Escolhido</th>
                   <th className="p-4 font-bold">Data</th>
                 </tr>
@@ -762,6 +845,7 @@ const AdminPage = () => {
                   <tr key={ins.id} className="hover:bg-gray-50">
                     <td className="p-4 font-bold text-gray-900">{ins.estudantes?.nome}</td>
                     <td className="p-4 text-gray-600">{ins.estudantes?.turma}</td>
+                    <td className="p-4 text-gray-600 capitalize">{ins.estudantes?.turno || '-'}</td>
                     <td className="p-4 text-gray-600">{ins.ifas?.nome_ifa}</td>
                     <td className="p-4 text-gray-400 text-sm">{new Date(ins.data_inscricao).toLocaleDateString()}</td>
                   </tr>
