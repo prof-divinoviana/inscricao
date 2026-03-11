@@ -87,17 +87,20 @@ const HomePage = () => {
     }
 
     try {
-      const response = await fetch('/api/identify-serie', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ turma })
-      });
+      // Identificação da série localmente (evita erro de API no Vercel)
+      const prefix = turma.substring(0, 2);
+      let serie = 0;
       
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error);
+      if (prefix === "13") serie = 1;
+      else if (prefix === "23") serie = 2;
+      else if (prefix === "33") serie = 3;
+      
+      if (serie === 0) {
+        throw new Error("Série não identificada para esta turma (Use 13, 23 ou 33).");
+      }
 
       // Salvar dados temporários no sessionStorage
-      sessionStorage.setItem('temp_student', JSON.stringify({ nome, turma, serie: data.serie }));
+      sessionStorage.setItem('temp_student', JSON.stringify({ nome, turma, serie }));
       navigate('/selecao');
     } catch (err: any) {
       setError(err.message);
@@ -411,24 +414,8 @@ const AdminPage = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const base64 = (event.target?.result as string).split(',')[1];
-      try {
-        const res = await fetch('/api/admin/upload-pdf', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileData: base64, fileName: file.name })
-        });
-        const data = await res.json();
-        alert("PDF processado. Verifique o console para os dados extraídos.");
-        console.log(data);
-        // Aqui você chamaria /api/admin/save-ifas com os dados estruturados
-      } catch (err) {
-        alert("Erro ao processar PDF");
-      }
-    };
-    reader.readAsDataURL(file);
+    alert("O processamento de PDF no Vercel requer configuração de Serverless Functions. Para este protótipo, use o script SQL fornecido para inserir os dados diretamente no Supabase.");
+    console.log("Arquivo selecionado:", file.name);
   };
 
   if (!supabase) {
