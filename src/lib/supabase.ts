@@ -1,7 +1,21 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
-const supabaseAnonKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY || '';
+const getEnv = (key: string) => {
+  // Tenta obter do import.meta.env (Vite)
+  const viteKey = `VITE_${key}`;
+  const fromVite = (import.meta as any).env?.[viteKey];
+  if (fromVite) return fromVite;
+
+  // Tenta obter do process.env (Injetado pelo Vite define ou Node)
+  try {
+    return (process.env as any)?.[key];
+  } catch {
+    return '';
+  }
+};
+
+const supabaseUrl = getEnv('SUPABASE_URL');
+const supabaseAnonKey = getEnv('SUPABASE_ANON_KEY');
 
 export const supabase = (supabaseUrl && supabaseAnonKey) 
   ? createClient(supabaseUrl, supabaseAnonKey)

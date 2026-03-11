@@ -87,7 +87,17 @@ const HomePage = () => {
     }
 
     try {
-      // Identificação da série localmente (evita erro de API no Vercel)
+      // Validação básica de configuração
+      if (!supabase) {
+        throw new Error("Configuração do Supabase ausente. Verifique as variáveis de ambiente.");
+      }
+      
+      const url = (supabase as any).supabaseUrl;
+      if (url && (url.includes('vercel.app') || url.includes('run.app'))) {
+        throw new Error("Erro de Configuração: A URL do Supabase parece estar apontando para o próprio app. Use a URL do projeto Supabase (ex: https://xyz.supabase.co).");
+      }
+
+      // Identificação da série localmente
       const prefix = turma.substring(0, 2);
       let serie = 0;
       
@@ -377,9 +387,17 @@ const AdminPage = () => {
   const [activeTab, setActiveTab] = useState<'ifas' | 'inscritos'>('ifas');
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    if (!supabase) return;
+    
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error("Erro ao obter sessão:", error);
+        return;
+      }
       setUser(session?.user ?? null);
       if (session?.user) fetchData();
+    }).catch(err => {
+      console.error("Erro crítico na sessão:", err);
     });
   }, []);
 
@@ -408,14 +426,6 @@ const AdminPage = () => {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setUser(null);
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    alert("O processamento de PDF no Vercel requer configuração de Serverless Functions. Para este protótipo, use o script SQL fornecido para inserir os dados diretamente no Supabase.");
-    console.log("Arquivo selecionado:", file.name);
   };
 
   if (!supabase) {
@@ -494,12 +504,12 @@ const AdminPage = () => {
             </div>
           </div>
         </Card>
-        <Card className="p-6 bg-white border-2 border-dashed border-gray-200 flex items-center justify-center">
-          <label className="cursor-pointer flex flex-col items-center gap-2 text-gray-500 hover:text-emerald-600 transition-colors">
-            <Upload className="w-6 h-6" />
-            <span className="font-bold">Importar PDF</span>
-            <input type="file" accept=".pdf" className="hidden" onChange={handleFileUpload} />
-          </label>
+        <Card className="p-6 bg-white border-2 border-dashed border-gray-100 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-2 text-gray-400">
+            <CheckCircle className="w-6 h-6 text-emerald-500" />
+            <span className="font-bold text-sm">Banco de Dados Conectado</span>
+            <p className="text-[10px] text-center px-4">Os dados foram inseridos via SQL Editor</p>
+          </div>
         </Card>
       </div>
 
