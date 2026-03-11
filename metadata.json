@@ -1,0 +1,5 @@
+{
+  "name": "Sistema de Inscrição IFA",
+  "description": "Sistema para gerenciamento e inscrição de estudantes em Itinerários Formativos (IFA) do ensino médio.",
+  "requestFramePermissions": []
+}
