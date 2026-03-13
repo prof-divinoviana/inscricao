@@ -476,6 +476,7 @@ const AdminPage = () => {
   const [selectedTurno, setSelectedTurno] = useState<string>('all');
   const [editingIfaId, setEditingIfaId] = useState<string | null>(null);
   const [newIfaName, setNewIfaName] = useState('');
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     if (!supabase) return;
@@ -694,6 +695,78 @@ const AdminPage = () => {
     fetchData();
   };
 
+  const handleSyncMatutino = async () => {
+    if (!confirm("Isso irá atualizar todos os IFAs do Matutino com os dados da lista oficial (PDF). Deseja continuar?")) return;
+    
+    setSyncing(true);
+    try {
+      const matutinoData = [
+        { turma: '13.01', p1: 'RAÍZES E PRESERVAÇÃO DA CULTURA AFRO NO TOCANTINS', prof1: 'AFONSO', p2: '-', prof2: 'DÉFICIT', serie: 1 },
+        { turma: '13.02', p1: 'A FISIO-QUÍMICA DA ARGILA E DA CERÂMICA: CIÊNCIA, ARTE E SUSTENTABILIDADE', prof1: 'FRANCISCO', p2: 'DINHEIRO EM FOCO', prof2: 'ROSEVANY', serie: 1 },
+        { turma: '13.03', p1: 'MUSEU DA SUSTENTABILIDADE: EDUCAÇÃO PARA UM FUTURO SUSTENTÁVEL', prof1: 'ANA KAROLINA', p2: 'PATRIMÔNIO, CULTURA MATERIAL E IDENTIDADE COLETIVA', prof2: 'NÚBIA', serie: 1 },
+        { turma: '13.04', p1: 'A QUÍMICA NA PRÁTICA', prof1: 'FLOR', p2: 'BOATEMÁTICA E A CULTURA MAKER', prof2: 'MARCUS SALES', serie: 1 },
+        { turma: '13.05', p1: 'PIONEIROS DO TOCANTINS: A SAGA DOS IMIGRANTES', prof1: 'ALEX', p2: 'ESPANHOL BÁSICO', prof2: 'EDILSON', serie: 1 },
+        { turma: '23.01', p1: 'RAÍZES E PRESERVAÇÃO DA CULTURA AFRO NO TOCANTINS', prof1: 'AFONSO', p2: 'ALÉM DO OLHAR: O PODER DAS IMAGENS NA INTERPRETAÇÃO VISUAL DA CONSTRUÇÃO DE SENTIDOS', prof2: 'CARLA ANDRÉIA', serie: 2 },
+        { turma: '23.02', p1: 'A QUÍMICA NA PRÁTICA', prof1: 'FLOR', p2: 'PENSAMENTO LÓGICO E ESTRATÉGIAS MATEMÁTICAS PARA DESAFIOS REAIS', prof2: 'ANA CAROLINA', serie: 2 },
+        { turma: '23.03', p1: 'VOZES DA ANCESTRALIDADE: UBUNTU TOCANTINENSE', prof1: 'MARLZONNI', p2: 'CULTURE', prof2: 'JAQUELINE', serie: 2 },
+        { turma: '23.04', p1: 'MUSEU DA SUSTENTABILIDADE: EDUCAÇÃO PARA UM FUTURO SUSTENTÁVEL', prof1: 'ANA KAROLINA', p2: 'LER, CONTAR, ESCREVER', prof2: 'WASHINGTON', serie: 2 },
+        { turma: '33.01', p1: 'MUSEU DA SUSTENTABILIDADE: EDUCAÇÃO PARA UM FUTURO SUSTENTÁVEL', prof1: 'ANA KAROLINA', p2: 'LER, CONTAR, ESCREVER', prof2: 'WASHINGTON', serie: 3 },
+        { turma: '33.02', p1: 'PIONEIROS DO TOCANTINS: A SAGA DOS IMIGRANTES', prof1: 'ALEX', p2: 'ALÉM DO OLHAR: O PODER DAS IMAGENS NA INTERPRETAÇÃO VISUAL DA CONSTRUÇÃO DE SENTIDOS', prof2: 'CARLA ANDRÉIA', serie: 3 },
+        { turma: '33.03', p1: 'REUTILIZAÇÃO DE GARRAFAS DE VIDRO PARA PROTEÇÃO DO MEIO AMBIENTE', prof1: 'FRANCISCO', p2: 'BOATEMÁTICA E A CULTURA MAKER', prof2: 'MARCUS SALES', serie: 3 },
+        { turma: '33.04', p1: 'QUÍMICA EM TUDO: O ELO INVISÍVEL ENTRE A TEORIA, A SOCIEDADE E A INOVAÇÃO', prof1: 'CRISTIANE', p2: 'PENSAMENTO LÓGICO E ESTRATÉGIAS MATEMÁTICAS PARA DESAFIOS REAIS', prof2: 'ANA CAROLINA', serie: 3 },
+        { turma: '33.09', p1: 'VOZES DA ANCESTRALIDADE: UBUNTU TOCANTINENSE', prof1: 'MARLZONNI', p2: 'PATRIMÔNIO, CULTURA MATERIAL E IDENTIDADE COLETIVA', prof2: 'NÚBIA', serie: 3 },
+      ];
+
+      for (const item of matutinoData) {
+        // Busca se já existe um IFA para esta turma
+        const { data: existing, error: fetchError } = await supabase
+          .from('ifas')
+          .select('id')
+          .eq('turma', item.turma)
+          .maybeSingle();
+
+        if (fetchError) {
+          console.error(`Erro ao buscar turma ${item.turma}:`, fetchError);
+          throw new Error(`Erro ao buscar turma ${item.turma}: ${fetchError.message}`);
+        }
+
+        const payload = {
+          nome_ifa: item.p1,
+          turma: item.turma,
+          serie: item.serie,
+          tipo_ifa: 1,
+          projeto_1: item.p1,
+          professor_1: item.prof1,
+          projeto_2: item.p2,
+          professor_2: item.prof2,
+          vagas_maximas: 40
+        };
+
+        if (existing) {
+          const { error: updateError } = await supabase.from('ifas').update(payload).eq('id', existing.id);
+          if (updateError) {
+            console.error(`Erro ao atualizar turma ${item.turma}:`, updateError);
+            throw new Error(`Erro ao atualizar turma ${item.turma}: ${updateError.message}`);
+          }
+        } else {
+          const { error: insertError } = await supabase.from('ifas').insert([payload]);
+          if (insertError) {
+            console.error(`Erro ao inserir turma ${item.turma}:`, insertError);
+            throw new Error(`Erro ao inserir turma ${item.turma}: ${insertError.message}`);
+          }
+        }
+      }
+
+      alert("Sincronização do Matutino concluída!");
+      fetchData();
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao sincronizar dados.");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -807,12 +880,19 @@ const AdminPage = () => {
             </div>
           </div>
         </Card>
-        <Card className="p-6 bg-white border-2 border-dashed border-gray-100 flex items-center justify-center">
+        <Card className="p-6 bg-white border-2 border-dashed border-gray-100 flex flex-col items-center justify-center gap-4">
           <div className="flex flex-col items-center gap-2 text-gray-400">
             <CheckCircle className="w-6 h-6 text-emerald-500" />
             <span className="font-bold text-sm">Banco de Dados Conectado</span>
-            <p className="text-[10px] text-center px-4">Os dados foram inseridos via SQL Editor</p>
           </div>
+          <button 
+            disabled={syncing}
+            onClick={handleSyncMatutino}
+            className="flex items-center gap-2 bg-emerald-50 text-emerald-700 px-4 py-2 rounded-lg text-xs font-bold hover:bg-emerald-100 transition-all border border-emerald-200"
+          >
+            {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+            Sincronizar Matutino (PDF)
+          </button>
         </Card>
       </div>
 
