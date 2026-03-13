@@ -254,6 +254,12 @@ const SelecaoPage = () => {
     }
     setSubmitting(ifaId);
     try {
+      // 0. Validar se o turno do IFA coincide com o turno do estudante
+      const ifaTurno = getTurnoFromTurma(ifas.find(i => i.id === ifaId)?.turma || '');
+      if (ifaTurno !== student.turno) {
+        throw new Error(`Você só pode se inscrever em itinerários do turno ${student.turno}.`);
+      }
+
       // 1. Verificar se o estudante já existe (Nome + Turma)
       let { data: existingStudent, error: findError } = await supabase
         .from('estudantes')
@@ -458,8 +464,18 @@ const SelecaoPage = () => {
         <div className="h-1 w-20 bg-emerald-600 mt-4 rounded-full"></div>
       </div>
 
-      {renderIfaGrid(ifasMatutino, "Turno Matutino")}
-      {renderIfaGrid(ifasVespertino, "Turno Vespertino")}
+      {student?.turno === 'matutino' && renderIfaGrid(ifasMatutino, "Turno Matutino")}
+      {student?.turno === 'vespertino' && renderIfaGrid(ifasVespertino, "Turno Vespertino")}
+      
+      {student?.turno === 'outro' && (
+        <Card className="p-8 text-center border-amber-200 bg-amber-50">
+          <AlertCircle className="w-12 h-12 text-amber-600 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-amber-900">Turno não identificado</h2>
+          <p className="text-amber-700 mt-2">
+            Não conseguimos identificar seu turno automaticamente. Por favor, procure a coordenação.
+          </p>
+        </Card>
+      )}
     </div>
   );
 };
